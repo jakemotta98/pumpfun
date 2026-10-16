@@ -53,12 +53,35 @@ async def check() -> int:
             bad("no transactions found for the migration account - Pump.fun may have changed it")
             return 1
         parsed = []
+        tx_errors = 0
+        diagnosed = False
         for sg in sigs:
             if sg.get("err") is not None:
                 continue
-            m = parse_migration(await h.get_transaction(sg["signature"]), sg["signature"])
+            try:
+                tx = await h.get_transaction(sg["signature"])
+            except Exception as e:
+                tx_errors += 1
+                if tx_errors == 1:
+                    bad(f"getTransaction failed: {e}")
+                continue
+            m = parse_migration(tx, sg["signature"])
             if m:
                 parsed.append(m)
+            elif tx and not diagnosed and "Migrate" in " ".join((tx.get("meta") or {}).get("logMessages") or []):
+                diagnosed = True  # a migration we could not parse: print its shape so it can be fixed
+                meta = tx.get("meta") or {}
+                msg = (tx.get("transaction") or {}).get("message") or {}
+                from .migration import _program_ids
+                print("  INFO  unparsed migration", sg["signature"])
+                print("  INFO   version", tx.get("version"), "| blockTime", tx.get("blockTime"),
+                      "| err", meta.get("err"))
+                print("  INFO   message keys", sorted(msg.keys()), "| meta keys", sorted(meta.keys()))
+                print("  INFO   programs", sorted(_program_ids(tx)))
+                print("  INFO   preTokenBalances", [(b.get("mint"), b.get("owner")) for b in
+                                                    meta.get("preTokenBalances") or []][:6])
+        if tx_errors:
+            failures += 1
         ok(f"{len(sigs)} recent transactions read, {len(parsed)} parsed as migrations "
            f"({sum(m.method == 'curve_owner' for m in parsed)} identified via the curve account, "
            f"{sum(m.method != 'curve_owner' for m in parsed)} by fallback heuristic)")

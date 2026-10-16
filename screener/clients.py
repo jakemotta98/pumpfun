@@ -5,6 +5,7 @@ import asyncio
 import collections
 import logging
 import random
+import re
 import time
 from typing import Any
 
@@ -92,9 +93,22 @@ class Helius:
     async def get_slot(self) -> int:
         return await self.call("getSlot", [{"commitment": "confirmed"}])
 
+    max_tx_version = 1  # Solana transaction format; raised automatically if the network reports a newer one
+
     async def get_transaction(self, sig: str) -> dict | None:
-        return await self.call("getTransaction", [sig, {"encoding": "jsonParsed", "commitment": "confirmed",
-                                                        "maxSupportedTransactionVersion": 0}])
+        for _ in range(3):
+            try:
+                return await self.call("getTransaction", [sig, {
+                    "encoding": "jsonParsed", "commitment": "confirmed",
+                    "maxSupportedTransactionVersion": self.max_tx_version}])
+            except RpcError as e:
+                m = re.search(r'maxSupportedTransactionVersion\W+(\d+)', str(e))
+                if "-32015" in str(e) and m and int(m.group(1)) > self.max_tx_version:
+                    log.warning("raising maxSupportedTransactionVersion to %s", m.group(1))
+                    Helius.max_tx_version = int(m.group(1))
+                    continue
+                raise
+        return None
 
     async def get_signatures(self, address: str, limit: int = 1000, before: str | None = None,
                              until: str | None = None) -> list[dict]:
