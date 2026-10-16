@@ -194,6 +194,41 @@ async def check() -> int:
     return 1 if failures else 0
 
 
+async def diagnose(n: int = 4) -> None:
+    """Show what the logged 'unparsed_migration' transactions actually are."""
+    from .migration import _program_ids
+    from .onchain import bonding_curve_pda
+    s = load_settings()
+    db = DB(s.db_path)
+    rows = db.conn.execute("SELECT detail FROM events WHERE kind='unparsed_migration' ORDER BY ts DESC LIMIT ?",
+                           (n,)).fetchall()
+    total = db.conn.execute("SELECT COUNT(*) n FROM events WHERE kind='unparsed_migration'").fetchone()["n"]
+    print(f"{total} unparsed migration transactions logged; showing {len(rows)}\n")
+    async with httpx.AsyncClient(timeout=30) as http:
+        h = Helius(s.rpc_url, 5, 1, http)
+        for r in rows:
+            sig = r["detail"]
+            tx = await h.get_transaction(sig)
+            meta = (tx or {}).get("meta") or {}
+            print("signature:", sig)
+            print("  version:", (tx or {}).get("version"), "| blockTime:", (tx or {}).get("blockTime"))
+            print("  instruction logs:", [l.strip()[:80] for l in meta.get("logMessages") or [] if "Instruction:" in l][:8])
+            progs = _program_ids(tx or {})
+            print("  pump program:", PUMP_PROGRAM in progs, "| pumpswap program:",
+                  "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA" in progs, "| n programs:", len(progs))
+            pre = meta.get("preTokenBalances") or []
+            print("  preTokenBalances:", len(pre), "| postTokenBalances:", len(meta.get("postTokenBalances") or []))
+            for b in pre[:6]:
+                m, o = b.get("mint"), b.get("owner")
+                own = False
+                try:
+                    own = bool(m and o and bonding_curve_pda(m) == o)
+                except Exception:
+                    pass
+                print(f"    mint {m} owner {o} owner_is_curve={own}")
+            print()
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     for handler in logging.getLogger().handlers:
@@ -204,6 +239,8 @@ def main() -> None:
         asyncio.run(App(load_settings()).run())
     elif cmd == "check":
         sys.exit(asyncio.run(check()))
+    elif cmd == "diagnose":
+        asyncio.run(diagnose())
     elif cmd == "report":
         print(daily_summary(DB(load_settings().db_path), int(time.time())))
     elif cmd == "export":
@@ -211,7 +248,7 @@ def main() -> None:
         n = export_csv(DB(load_settings().db_path), out)
         print(f"wrote {n} rows to {out}")
     else:
-        print("usage: python -m screener [run|check|report|export [file.csv]]")
+        print("usage: python -m screener [run|check|diagnose|report|export [file.csv]]")
         sys.exit(2)
 
 
