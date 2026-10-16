@@ -5,7 +5,7 @@ set -euo pipefail
 APP=/opt/pumpscreener
 REPO_SSH="git@github.com:jakemotta98/pumpfun-data.git"
 cd "$APP"
-apt-get install -y -qq openssh-client git >/dev/null
+command -v ssh-keygen >/dev/null && command -v git >/dev/null || { echo "ssh-keygen or git missing - tell Claude"; exit 1; }
 
 KEY=data/deploy_key
 if [ ! -f "$KEY" ]; then
