@@ -140,3 +140,25 @@ def test_creation_via_metadata_and_block():
     assert res["method"] == "metadata+block" and res["complete"]
     assert res["creator"] == creator
     assert res["first_slot_buys"] == {creator: 100, sniper: 50}
+
+
+def test_creation_oldest_first():
+    from screener.onchain import analyse_curve, bonding_curve_pda
+    from test_core import bal
+    creator, sniper = addr(), addr()
+
+    def tx(payer, slot, logs, owner, amt, sig):
+        return {"slot": slot, "transaction": {"signatures": [sig], "message": {"accountKeys": [{"pubkey": payer}]}},
+                "meta": {"err": None, "logMessages": logs, "preTokenBalances": [],
+                         "postTokenBalances": [bal(MINT, owner, amt)]}}
+
+    class H:
+        async def oldest_transactions(self, address, limit=100, slot_eq=None, token=None):
+            assert address == bonding_curve_pda(MINT)
+            return {"data": [tx(creator, 10, ["Program log: Instruction: Create"], creator, 100, "c"),
+                             tx(sniper, 10, ["Program log: Instruction: Buy"], sniper, 40, "s"),
+                             tx(addr(), 11, ["Program log: Instruction: Buy"], addr(), 5, "x")],
+                    "paginationToken": "11:0"}
+    res = asyncio.run(analyse_curve(H(), MINT))
+    assert res["method"] == "oldest_first" and res["complete"] and res["creator"] == creator
+    assert res["first_slot_buys"] == {creator: 100, sniper: 40} and res["create_sig"] == "c"

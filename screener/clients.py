@@ -110,6 +110,19 @@ class Helius:
                 raise
         return None
 
+    async def oldest_transactions(self, address: str, limit: int = 100, slot_eq: int | None = None,
+                                  token: str | None = None) -> dict:
+        """Helius getTransactionsForAddress, oldest first, full parsed transactions, successful only."""
+        filters: dict = {"status": "succeeded"}
+        if slot_eq is not None:
+            filters["slot"] = {"gte": slot_eq, "lte": slot_eq}
+        cfg: dict = {"transactionDetails": "full", "encoding": "jsonParsed", "sortOrder": "asc", "limit": limit,
+                     "commitment": "confirmed", "maxSupportedTransactionVersion": self.max_tx_version,
+                     "filters": filters}
+        if token:
+            cfg["paginationToken"] = token
+        return await self.call("getTransactionsForAddress", [address, cfg]) or {}
+
     async def get_block_accounts(self, slot: int) -> dict | None:
         """Whole block with per-transaction account keys and token balances, but no instructions (smaller)."""
         return await self.call("getBlock", [slot, {"encoding": "jsonParsed", "transactionDetails": "accounts",

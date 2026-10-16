@@ -104,24 +104,25 @@ async def check() -> int:
                 bad(f"curve account {curve} not found or wrong owner ({(acct or {}).get('owner')})")
                 failures += 1
 
-            # creator: curve-account bytes (offset 49, unverified layout) vs Create-tx fee payer, report only
-            try:
-                cv = await analyse_curve(h, newest.mint)
-                res = await h.call("getAccountInfo", [curve, {"encoding": "base64"}])
-                data = base64.b64decode(((res or {}).get("value") or {}).get("data", [""])[0])
-                from_bytes = str(Pubkey.from_bytes(data[49:81])) if len(data) >= 81 else None
-                line = (f"creation lookup via {cv.get('method')}: complete={cv['complete']}, creator {cv['creator']}, "
-                        f"creation-slot buyers {len(cv['first_slot_buys'])} from {cv.get('first_slot_txs_read')} txs")
-                if cv.get("primary_failure"):
-                    line += f" (primary method failed: {cv['primary_failure']})"
-                (ok if cv["complete"] and cv["creator"] else bad)(line)
-                if not (cv["complete"] and cv["creator"]):
+            # creation lookup on up to 3 recent graduates; curve-account bytes cross-check is info only
+            for mg in sorted(parsed, key=lambda m: m.block_time, reverse=True)[:3]:
+                try:
+                    cv = await analyse_curve(h, mg.mint)
+                    res = await h.call("getAccountInfo", [bonding_curve_pda(mg.mint), {"encoding": "base64"}])
+                    data = base64.b64decode(((res or {}).get("value") or {}).get("data", [""])[0])
+                    from_bytes = str(Pubkey.from_bytes(data[49:81])) if len(data) >= 81 else None
+                    for f in cv.get("earlier_failures") or []:
+                        print(f"  INFO  {mg.mint[:8]}: earlier method failed - {f}")
+                    good = bool(cv["complete"] and cv["creator"])
+                    (ok if good else bad)(
+                        f"{mg.mint[:8]}: creation lookup via {cv.get('method')}, creator {cv['creator']}, "
+                        f"{len(cv['first_slot_buys'])} creation-slot buyers from {cv.get('first_slot_txs_read')} txs; "
+                        f"curve bytes {'match' if from_bytes == cv['creator'] else 'differ'}")
+                    if not good:
+                        failures += 1
+                except Exception as e:
+                    bad(f"{mg.mint[:8]}: creation lookup failed: {type(e).__name__}: {e}")
                     failures += 1
-                print(f"  INFO  creator from curve bytes: {from_bytes} "
-                      f"({'matches' if from_bytes == cv['creator'] else 'does not match'}; layout unverified, info only)")
-            except Exception as e:
-                bad(f"curve analysis failed: {type(e).__name__}: {e}")
-                failures += 1
 
             print("4. Holders")
             try:

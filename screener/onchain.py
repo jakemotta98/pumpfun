@@ -83,6 +83,53 @@ def find_funder(tx: dict, wallet: str) -> str | None:
     return fp if fp and fp != wallet else None
 
 
+def _buys_from(txs: list[dict], mint: str) -> dict[str, int]:
+    buys: dict[str, int] = defaultdict(int)
+    for tx in txs:
+        for owner, amt in token_deltas(tx, mint).items():
+            if amt > 0 and is_on_curve(owner):
+                buys[owner] += amt
+    return dict(buys)
+
+
+async def analyse_oldest_first(h: Helius, mint: str) -> dict:
+    """Primary method: the bonding curve's oldest transactions, read oldest-first in one call (Helius
+    getTransactionsForAddress). Creator = fee payer of the Create transaction; creation-slot buyers = every
+    successful transaction in that slot (paged if the slot has more than 100)."""
+    curve = bonding_curve_pda(mint)
+    out: dict = {"method": "oldest_first", "curve": curve, "complete": False, "creator": None, "create_sig": None,
+                 "first_slot": None, "first_slot_buys": {}, "first_slot_txs_read": 0, "n_sigs": None}
+    res = await h.oldest_transactions(curve, limit=100)
+    entries = res.get("data") or []
+    if not entries:
+        out["reason"] = "no transactions returned"
+        return out
+    first_slot = entries[0].get("slot")
+    out["first_slot"] = first_slot
+    txs = [e for e in entries if e.get("slot") == first_slot]
+    if len(txs) == len(entries) and res.get("paginationToken"):  # slot fuller than one page
+        token = res.get("paginationToken")
+        for _ in range(10):
+            more = await h.oldest_transactions(curve, limit=100, slot_eq=first_slot, token=token)
+            txs.extend(more.get("data") or [])
+            token = more.get("paginationToken")
+            if not token:
+                break
+    for e in txs:
+        logs = (e.get("meta") or {}).get("logMessages") or []
+        if any("Instruction: Create" in (l or "") for l in logs):
+            out["creator"] = fee_payer(e)
+            out["create_sig"] = ((e.get("transaction") or {}).get("signatures") or [None])[0]
+            break
+    if out["creator"] is None:
+        out["reason"] = "no Create transaction in the first slot"
+        return out
+    out["first_slot_txs_read"] = len(txs)
+    out["first_slot_buys"] = _buys_from(txs, mint)
+    out["complete"] = True
+    return out
+
+
 async def analyse_creation(h: Helius, mint: str) -> dict:
     """Creator and creation-slot buyers, independent of how busy the token was.
     The token's metadata account is written at creation and rarely afterwards, so its oldest transaction is the
@@ -93,7 +140,11 @@ async def analyse_creation(h: Helius, mint: str) -> dict:
                  "n_sigs": None}
     sigs = await h.get_signatures(meta_addr, limit=1000)
     out["n_sigs"] = len(sigs)
-    if not sigs or len(sigs) >= 1000:
+    if not sigs:
+        out["reason"] = "metadata account has no transactions"
+        return out
+    if len(sigs) >= 1000:
+        out["reason"] = "metadata account too busy"
         return out
     oldest = sigs[-1]
     tx = await h.get_transaction(oldest["signature"])
@@ -121,22 +172,29 @@ async def analyse_creation(h: Helius, mint: str) -> dict:
                 buys[owner] += amt
     out["first_slot_buys"] = dict(buys)
     out["complete"] = out["first_slot_txs_read"] > 0
+    if not out["complete"]:
+        out["reason"] = "no token movements found in the creation block"
     return out
 
 
 async def analyse_curve(h: Helius, mint: str, max_pages: int = CURVE_MAX_PAGES) -> dict:
     """Creator and creation-slot buyers. Primary method: metadata account + creation block (cheap, works for
     busy tokens). Fallback: the bonding-curve account's own history (fails past max_pages x 1000 txs)."""
-    try:
-        res = await analyse_creation(h, mint)
-        if res.get("complete") and res.get("creator"):
-            return res
-    except Exception as e:
-        log.warning("metadata/block creation lookup failed for %s: %s", mint, type(e).__name__)
-        res = {"reason": type(e).__name__}
+    failures = []
+    for name, fn in (("oldest_first", analyse_oldest_first), ("metadata+block", analyse_creation)):
+        try:
+            res = await fn(h, mint)
+            if res.get("complete") and res.get("creator"):
+                if failures:
+                    res["earlier_failures"] = failures
+                return res
+            failures.append(f"{name}: {res.get('reason') or 'incomplete'}")
+        except Exception as e:
+            log.warning("%s creation lookup failed for %s: %s", name, mint, type(e).__name__)
+            failures.append(f"{name}: {type(e).__name__}: {str(e)[:120]}")
     fb = await analyse_curve_history(h, mint, max_pages)
     fb["method"] = "curve_history"
-    fb["primary_failure"] = res.get("reason") or "incomplete"
+    fb["earlier_failures"] = failures
     return fb
 
 

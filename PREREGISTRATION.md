@@ -50,8 +50,8 @@ A deep on-chain check runs only if, at that snapshot: a PumpSwap pair (Dexscreen
 | K8 | Pool liquidity below US$15,000 |
 
 Definitions:
-- Creator = fee payer of the create transaction: the oldest transaction on the token's Metaplex metadata account, accepted only if its logs show `Instruction: Create`. Fallback when that fails: the bonding-curve account's own history (up to 3,000 transactions), as in version 1.1. The method used is recorded per token.
-- Creation-slot buyers = wallets that received the token in any successful transaction in the creation slot, read from the whole block (fallback method: first 25 curve transactions in that slot). This includes the creator's own buy in the create transaction, so creator holdings can count towards both K5 and K7. Current balances are checked for the 10 largest; buys under 0.5% of supply are not rechecked unless the wallet is a top-20 holder.
+- Creator = fee payer of the transaction logging `Instruction: Create` in the earliest slot of the token's bonding-curve account history, read oldest-first. Fallbacks, in order, when that fails: the oldest transaction on the token's Metaplex metadata account; the bonding-curve history read newest-first (up to 3,000 transactions). The method used is recorded per token.
+- Creation-slot buyers = wallets that received the token in any successful transaction in that earliest slot (all of them, paged if needed; the block-read and newest-first fallbacks are recorded as such). This includes the creator's own buy in the create transaction, so creator holdings can count towards both K5 and K7. Current balances are checked for the 10 largest; buys under 0.5% of supply are not rechecked unless the wallet is a top-20 holder.
 - Creator-funded wallets (K5) = top-20 holders whose first incoming SOL came from the creator.
 - Linked cluster = two or more top-20 holders whose first incoming SOL came from the same address. Funders with 1,000 or more transactions in their recent history are treated as exchanges or hubs and do not link wallets.
 
