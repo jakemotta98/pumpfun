@@ -20,10 +20,10 @@ Watches every Pump.fun token that graduates to PumpSwap, records its on-chain st
 
 ### 4. Install
 1. In DigitalOcean, open your Droplet and click **Console** (it opens a terminal in your browser, logged in as root).
-2. Paste these three lines (replace `YOUR-GITHUB-NAME`):
+2. Paste these three lines:
    ```
    apt-get update && apt-get install -y git
-   git clone https://github.com/YOUR-GITHUB-NAME/pumpscreener /opt/pumpscreener
+   git clone https://github.com/jakemotta98/pumpfun /opt/pumpscreener
    bash /opt/pumpscreener/install.sh
    ```
 3. When asked, paste the Helius key, then the Telegram token (nothing shows as you paste; that is deliberate).
