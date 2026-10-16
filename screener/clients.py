@@ -110,6 +110,12 @@ class Helius:
                 raise
         return None
 
+    async def get_block_accounts(self, slot: int) -> dict | None:
+        """Whole block with per-transaction account keys and token balances, but no instructions (smaller)."""
+        return await self.call("getBlock", [slot, {"encoding": "jsonParsed", "transactionDetails": "accounts",
+                                                   "maxSupportedTransactionVersion": self.max_tx_version,
+                                                   "rewards": False, "commitment": "confirmed"}])
+
     async def get_signatures(self, address: str, limit: int = 1000, before: str | None = None,
                              until: str | None = None) -> list[dict]:
         opts: dict[str, Any] = {"limit": limit, "commitment": "confirmed"}

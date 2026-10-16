@@ -35,6 +35,21 @@ def _program_ids(tx: dict) -> set[str]:
     return ids
 
 
+def curve_owned_mint(tx: dict | None) -> str | None:
+    """The mint held by its own bonding-curve account in this transaction, if any."""
+    from .onchain import bonding_curve_pda
+    meta = (tx or {}).get("meta") or {}
+    for b in (meta.get("preTokenBalances") or []) + (meta.get("postTokenBalances") or []):
+        m, o = b.get("mint"), b.get("owner")
+        if m and o and m not in QUOTE_MINTS:
+            try:
+                if bonding_curve_pda(m) == o:
+                    return m
+            except Exception:
+                pass
+    return None
+
+
 def parse_migration(tx: dict | None, signature: str) -> Migration | None:
     """Return the migration, or None if this transaction is not a successful Pump.fun -> PumpSwap migration."""
     if not tx or tx.get("blockTime") is None:

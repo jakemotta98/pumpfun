@@ -106,4 +106,4 @@ echo
 echo "Done. You should get a 'Screener started' message on Telegram."
 echo "Useful commands:  journalctl -u pumpscreener -f                                   (live log)"
 echo "                  bash $APP/update.sh                                            (install an update)"
-echo "                  sudo -u screener $APP/.venv/bin/python -m screener report      (summary now)"
+echo "                  cd $APP && sudo -u screener .venv/bin/python -m screener report   (summary now)"

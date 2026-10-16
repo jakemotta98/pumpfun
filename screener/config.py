@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-FEATURE_VERSION = "1.1"
+FEATURE_VERSION = "1.2"
 
 # On-chain constants. Checked against public docs on 16/10/2026; `python -m screener check`
 # re-verifies them against live data on the server.
@@ -39,7 +39,7 @@ DEAD_NO_DATA_HOURS = 24
 TRACK_DAYS = 7          # outcome window after entry
 SAMPLE_DAYS = 9         # price sampling after T0 (covers a T+24h entry + 7 days)
 PUMPSWAP_DEX_IDS = {"pumpswap"}  # Dexscreener dexId; `check` prints what it sees
-CURVE_MAX_PAGES = 10
+CURVE_MAX_PAGES = 3   # fallback path only
 TOP_N_HOLDERS = 20
 FIRST_SLOT_TX_CAP = 25
 

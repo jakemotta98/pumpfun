@@ -36,7 +36,7 @@ Watches every Pump.fun token that graduates to PumpSwap, records its on-chain st
 - Telegram commands: `/status`, `/report`.
 - Install an update from Claude: open the Console and run `bash /opt/pumpscreener/update.sh`.
 - Live log: `journalctl -u pumpscreener -f` (Ctrl+C to exit).
-- Export the data for analysis: `sudo -u screener /opt/pumpscreener/.venv/bin/python -m screener export /opt/pumpscreener/data/export.csv`
+- Export the data for analysis: `cd /opt/pumpscreener && sudo -u screener .venv/bin/python -m screener export data/export.csv`
 
 ## What it costs to run
 - Server: about US$6/month.

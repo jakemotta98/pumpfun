@@ -1,6 +1,6 @@
 # Pre-registration - phase 1 (log only)
 
-Version: 1.1, written 16/10/2026, before any data was collected (1.1 folds in the pre-launch code review).
+Version: 1.2, written 16/10/2026, during the shakedown before the phase 1 clock starts (1.1 folded in the code review; 1.2 changes how the creator and creation-slot buyers are found, after live data showed busy tokens exceed 10,000 curve transactions).
 The SHA-256 of this file is printed in the first Telegram message the bot sends. Any later edit changes the hash, which is the point.
 
 ## Question
@@ -39,7 +39,7 @@ A deep on-chain check runs only if, at that snapshot: a PumpSwap pair (Dexscreen
 
 | Code | Rule |
 |---|---|
-| K0 | Bonding-curve history could not be read in full (creator or creation-slot buyers unknown). Excluded, never passed by default |
+| K0 | Creator or creation-slot buyers could not be determined. Excluded, never passed by default |
 | K1 | Pool not SOL-quoted (in practice enforced by the pre-screen, so it should always read zero) |
 | K2 | Mint authority or freeze authority not revoked |
 | K3 | Token-2022 mint with transfer fee, transfer hook, permanent delegate or default-frozen state |
@@ -50,8 +50,8 @@ A deep on-chain check runs only if, at that snapshot: a PumpSwap pair (Dexscreen
 | K8 | Pool liquidity below US$15,000 |
 
 Definitions:
-- Creator = fee payer of the transaction in the creation slot whose logs show `Instruction: Create`; if none is found among the transactions read, the fee payer of the earliest transaction on the bonding-curve account.
-- Creation-slot buyers = wallets that received the token in transactions in the same slot as that earliest transaction (first 25 transactions read). This includes the creator's own buy in the create transaction, so creator holdings can count towards both K5 and K7. Current balances are checked for the 10 largest; buys under 0.5% of supply are not rechecked unless the wallet is a top-20 holder.
+- Creator = fee payer of the create transaction: the oldest transaction on the token's Metaplex metadata account, accepted only if its logs show `Instruction: Create`. Fallback when that fails: the bonding-curve account's own history (up to 3,000 transactions), as in version 1.1. The method used is recorded per token.
+- Creation-slot buyers = wallets that received the token in any successful transaction in the creation slot, read from the whole block (fallback method: first 25 curve transactions in that slot). This includes the creator's own buy in the create transaction, so creator holdings can count towards both K5 and K7. Current balances are checked for the 10 largest; buys under 0.5% of supply are not rechecked unless the wallet is a top-20 holder.
 - Creator-funded wallets (K5) = top-20 holders whose first incoming SOL came from the creator.
 - Linked cluster = two or more top-20 holders whose first incoming SOL came from the same address. Funders with 1,000 or more transactions in their recent history are treated as exchanges or hubs and do not link wallets.
 

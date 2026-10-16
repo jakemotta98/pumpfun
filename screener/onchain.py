@@ -14,6 +14,13 @@ from .db import DB
 log = logging.getLogger("onchain")
 
 SYSTEM_PROGRAM = "11111111111111111111111111111111"
+METAPLEX_PROGRAM = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+
+
+def metadata_pda(mint: str) -> str:
+    prog = Pubkey.from_string(METAPLEX_PROGRAM)
+    pda, _ = Pubkey.find_program_address([b"metadata", bytes(prog), bytes(Pubkey.from_string(mint))], prog)
+    return str(pda)
 
 
 def bonding_curve_pda(mint: str) -> str:
@@ -31,7 +38,8 @@ def is_on_curve(address: str) -> bool:
 
 
 def fee_payer(tx: dict) -> str | None:
-    keys = ((tx.get("transaction") or {}).get("message") or {}).get("accountKeys") or []
+    t = tx.get("transaction") or {}
+    keys = (t.get("message") or {}).get("accountKeys") or t.get("accountKeys") or []  # full or "accounts" mode
     if not keys:
         return None
     k = keys[0]
@@ -75,8 +83,65 @@ def find_funder(tx: dict, wallet: str) -> str | None:
     return fp if fp and fp != wallet else None
 
 
+async def analyse_creation(h: Helius, mint: str) -> dict:
+    """Creator and creation-slot buyers, independent of how busy the token was.
+    The token's metadata account is written at creation and rarely afterwards, so its oldest transaction is the
+    create transaction (verified by its 'Instruction: Create' log). Creation-slot buyers come from the whole block."""
+    meta_addr = metadata_pda(mint)
+    out: dict = {"method": "metadata+block", "metadata": meta_addr, "complete": False, "creator": None,
+                 "create_sig": None, "first_slot": None, "first_slot_buys": {}, "first_slot_txs_read": 0,
+                 "n_sigs": None}
+    sigs = await h.get_signatures(meta_addr, limit=1000)
+    out["n_sigs"] = len(sigs)
+    if not sigs or len(sigs) >= 1000:
+        return out
+    oldest = sigs[-1]
+    tx = await h.get_transaction(oldest["signature"])
+    logs = ((tx or {}).get("meta") or {}).get("logMessages") or []
+    if not tx or not any("Instruction: Create" in (l or "") for l in logs):
+        out["reason"] = "oldest metadata tx is not a Create"
+        return out
+    out["creator"] = fee_payer(tx)
+    out["create_sig"] = oldest["signature"]
+    out["first_slot"] = tx.get("slot") or oldest.get("slot")
+    block = await h.get_block_accounts(out["first_slot"])
+    if block is None:
+        out["reason"] = "creation block unavailable"
+        return out
+    buys: dict[str, int] = defaultdict(int)
+    for btx in block.get("transactions") or []:
+        if ((btx.get("meta") or {}).get("err")) is not None:
+            continue
+        d = token_deltas(btx, mint)
+        if not d:
+            continue
+        out["first_slot_txs_read"] += 1
+        for owner, amt in d.items():
+            if amt > 0 and is_on_curve(owner):
+                buys[owner] += amt
+    out["first_slot_buys"] = dict(buys)
+    out["complete"] = out["first_slot_txs_read"] > 0
+    return out
+
+
 async def analyse_curve(h: Helius, mint: str, max_pages: int = CURVE_MAX_PAGES) -> dict:
-    """Creator and creation-slot buyers, from the bonding-curve account's history.
+    """Creator and creation-slot buyers. Primary method: metadata account + creation block (cheap, works for
+    busy tokens). Fallback: the bonding-curve account's own history (fails past max_pages x 1000 txs)."""
+    try:
+        res = await analyse_creation(h, mint)
+        if res.get("complete") and res.get("creator"):
+            return res
+    except Exception as e:
+        log.warning("metadata/block creation lookup failed for %s: %s", mint, type(e).__name__)
+        res = {"reason": type(e).__name__}
+    fb = await analyse_curve_history(h, mint, max_pages)
+    fb["method"] = "curve_history"
+    fb["primary_failure"] = res.get("reason") or "incomplete"
+    return fb
+
+
+async def analyse_curve_history(h: Helius, mint: str, max_pages: int = CURVE_MAX_PAGES) -> dict:
+    """Fallback: creator and creation-slot buyers from the bonding-curve account's history.
     The curve is closed to trading after migration, so this history is fixed and safe to read at any time."""
     curve = bonding_curve_pda(mint)
     sigs: list[dict] = []

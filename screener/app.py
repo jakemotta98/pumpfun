@@ -18,7 +18,7 @@ from .clients import Dexscreener, Helius, pairs_by_mint, sol_pumpswap_pair
 from .config import (DEAD_LIQ_USD, DEAD_NO_DATA_HOURS, DEEP_LABELS, FEATURE_VERSION, MIGRATION_ACCOUNT,
                      SAMPLE_DAYS, SNAPSHOTS, Settings)
 from .db import DB, unpack
-from .migration import logs_look_like_migration, parse_migration
+from .migration import curve_owned_mint, logs_look_like_migration, parse_migration
 from .report import daily_summary
 from .snapshot import prescreen, take_snapshot
 from .telegram import Telegram
@@ -143,7 +143,7 @@ class App:
         if m is None:
             logs = (tx.get("meta") or {}).get("logMessages")
             if logs_look_like_migration(logs) and (tx.get("meta") or {}).get("err") is None:
-                self.db.event("unparsed_migration", sig)
+                self.db.event("unparsed_migration", f"{sig} {curve_owned_mint(tx) or '-'}")
             self.db.done_sig(sig, "not_migration")
             return
         if m.method != "curve_owner":

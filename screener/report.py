@@ -72,9 +72,19 @@ def daily_summary(db: DB, now: int, hours: int = 24) -> str:
         lines.append("Top methods: " + ", ".join(f"{r['method']} {_fmt(r['n'])}" for r in calls[:5]))
     lines.append("(Call counts, not credits: some methods cost more than 1 credit. Check the Helius dashboard.)")
     warn = c.execute("SELECT kind, COUNT(*) n FROM events WHERE ts>=? AND kind IN "
-                     "('unparsed_migration','mint_heuristic','dex_outage','tx_unavailable') GROUP BY kind",
+                     "('mint_heuristic','dex_outage','tx_unavailable','backfill_truncated') GROUP BY kind",
                      (since,)).fetchall()
     lines.append(f"Errors: {errors}. Websocket reconnects: {reconnects}")
+    # Unparsed 'Migrate' transactions: harmless if their token was logged via its main migration transaction
+    unp = c.execute("SELECT ts, detail FROM events WHERE ts>=? AND kind='unparsed_migration'", (since,)).fetchall()
+    if unp:
+        missed = 0
+        for r in unp:
+            parts = (r["detail"] or "").split()
+            mint = parts[1] if len(parts) > 1 else "-"
+            if r["ts"] < now - 600 and (mint == "-" or not db.has_migration(mint)):
+                missed += 1
+        lines.append(f"Companion 'Migrate' transactions: {len(unp)}; tokens possibly missed: {missed}")
     if warn:
         lines.append("Warnings: " + ", ".join(f"{r['kind']} {r['n']}" for r in warn))
     return "\n".join(lines)

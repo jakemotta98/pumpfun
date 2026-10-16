@@ -108,3 +108,35 @@ def test_failed_dex_chunk_is_not_no_pair(tmp_path):
             return 1
     with pytest.raises(RuntimeError):
         asyncio.run(take_snapshot(H(), Down(), app.db, "m0", "15m", False))
+
+
+def test_creation_via_metadata_and_block():
+    from screener.onchain import analyse_curve, metadata_pda
+    from test_core import bal
+    creator, sniper = addr(), addr()
+
+    class H:
+        async def get_signatures(self, address, limit=1000, before=None, until=None):
+            assert address == metadata_pda(MINT)
+            return [{"signature": "later", "slot": 50}, {"signature": "create", "slot": 10}]
+
+        async def get_transaction(self, sig):
+            assert sig == "create"
+            return {"slot": 10, "transaction": {"message": {"accountKeys": [{"pubkey": creator}]}},
+                    "meta": {"logMessages": ["Program log: Instruction: Create"]}}
+
+        async def get_block_accounts(self, slot):
+            assert slot == 10
+            return {"transactions": [
+                {"transaction": {"accountKeys": [{"pubkey": creator}]},
+                 "meta": {"err": None, "preTokenBalances": [], "postTokenBalances": [bal(MINT, creator, 100)]}},
+                {"transaction": {"accountKeys": [{"pubkey": sniper}]},
+                 "meta": {"err": None, "preTokenBalances": [], "postTokenBalances": [bal(MINT, sniper, 50)]}},
+                {"transaction": {"accountKeys": [{"pubkey": addr()}]},
+                 "meta": {"err": {"x": 1}, "preTokenBalances": [], "postTokenBalances": [bal(MINT, addr(), 9)]}},
+                {"transaction": {"accountKeys": [{"pubkey": addr()}]}, "meta": {"err": None}},
+            ]}
+    res = asyncio.run(analyse_curve(H(), MINT))
+    assert res["method"] == "metadata+block" and res["complete"]
+    assert res["creator"] == creator
+    assert res["first_slot_buys"] == {creator: 100, sniper: 50}

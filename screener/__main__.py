@@ -110,8 +110,13 @@ async def check() -> int:
                 res = await h.call("getAccountInfo", [curve, {"encoding": "base64"}])
                 data = base64.b64decode(((res or {}).get("value") or {}).get("data", [""])[0])
                 from_bytes = str(Pubkey.from_bytes(data[49:81])) if len(data) >= 81 else None
-                ok(f"curve history: {cv['n_sigs']} txs (complete={cv['complete']}), creator {cv['creator']}, "
-                   f"creation-slot buyers {len(cv['first_slot_buys'])}")
+                line = (f"creation lookup via {cv.get('method')}: complete={cv['complete']}, creator {cv['creator']}, "
+                        f"creation-slot buyers {len(cv['first_slot_buys'])} from {cv.get('first_slot_txs_read')} txs")
+                if cv.get("primary_failure"):
+                    line += f" (primary method failed: {cv['primary_failure']})"
+                (ok if cv["complete"] and cv["creator"] else bad)(line)
+                if not (cv["complete"] and cv["creator"]):
+                    failures += 1
                 print(f"  INFO  creator from curve bytes: {from_bytes} "
                       f"({'matches' if from_bytes == cv['creator'] else 'does not match'}; layout unverified, info only)")
             except Exception as e:
@@ -207,7 +212,10 @@ async def diagnose(n: int = 4) -> None:
     async with httpx.AsyncClient(timeout=30) as http:
         h = Helius(s.rpc_url, 5, 1, http)
         for r in rows:
-            sig = r["detail"]
+            parts = (r["detail"] or "").split()
+            sig = parts[0]
+            if len(parts) > 1 and parts[1] != "-":
+                print(f"token {parts[1]} already logged as a migration: {db.has_migration(parts[1])}")
             tx = await h.get_transaction(sig)
             meta = (tx or {}).get("meta") or {}
             print("signature:", sig)
