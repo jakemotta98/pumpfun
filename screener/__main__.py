@@ -238,6 +238,41 @@ async def diagnose(n: int = 4) -> None:
             print()
 
 
+async def liquidity_check(n: int = 12) -> None:
+    """Compare Dexscreener's pool liquidity with the SOL actually held by the pool on-chain."""
+    from .config import WSOL_MINT
+    from .db import unpack
+    s = load_settings()
+    db = DB(s.db_path)
+    rows = db.conn.execute(
+        "SELECT m.mint, s.raw FROM migrations m JOIN snapshots s ON s.mint=m.mint AND s.label='15m' "
+        "WHERE s.status='done' ORDER BY m.block_time DESC LIMIT ?", (n,)).fetchall()
+    async with httpx.AsyncClient(timeout=30) as http:
+        h = Helius(s.rpc_url, 5, 1, http)
+        dex = Dexscreener(http=http)
+        live = {p["pairAddress"]: p for p in await dex.tokens([r["mint"] for r in rows]) if p.get("pairAddress")}
+        print(f"{'token':10} {'dex liq $':>11} {'dex SOL':>9} {'chain SOL':>10} {'dex token':>14} {'chain token':>14}")
+        for r in rows:
+            pair = sol_pumpswap_pair((unpack(r["raw"]) or {}).get("pairs") or [])
+            if not pair:
+                print(f"{r['mint'][:8]:10} no SOL PumpSwap pair at 15m")
+                continue
+            now_pair = live.get(pair["pairAddress"], pair)
+            sol_chain = tok_chain = 0.0
+            for mint_, label in ((WSOL_MINT, "sol"), (r["mint"], "tok")):
+                accts = await h.get_token_accounts_by_owner(pair["pairAddress"], mint_)
+                amt = sum(float(a["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"] or 0) for a in accts)
+                if label == "sol":
+                    sol_chain = amt
+                else:
+                    tok_chain = amt
+            liq = now_pair.get("liquidity") or {}
+            print(f"{r['mint'][:8]:10} {liq.get('usd') or 0:>11,.0f} {liq.get('quote') or 0:>9,.2f} {sol_chain:>10,.2f} "
+                  f"{liq.get('base') or 0:>14,.0f} {tok_chain:>14,.0f}")
+    print("\nIf 'chain SOL' is much larger than 'dex SOL', Dexscreener under-reports these pools. "
+          "If both are small, liquidity really is leaving.")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     for handler in logging.getLogger().handlers:
@@ -257,6 +292,8 @@ def main() -> None:
         res = publish(s.db_path, s.publish_repo, s.db_path.parent, s.timezone)
         print(res)
         sys.exit(0 if res.startswith(("published", "no changes")) else 1)
+    elif cmd == "liquidity":
+        asyncio.run(liquidity_check())
     elif cmd == "diagnose":
         asyncio.run(diagnose())
     elif cmd == "report":

@@ -78,13 +78,16 @@ def daily_summary(db: DB, now: int, hours: int = 24) -> str:
     # Unparsed 'Migrate' transactions: harmless if their token was logged via its main migration transaction
     unp = c.execute("SELECT ts, detail FROM events WHERE ts>=? AND kind='unparsed_migration'", (since,)).fetchall()
     if unp:
-        missed = 0
+        missed, unchecked = set(), 0
         for r in unp:
             parts = (r["detail"] or "").split()
-            mint = parts[1] if len(parts) > 1 else "-"
-            if r["ts"] < now - 600 and (mint == "-" or not db.has_migration(mint)):
-                missed += 1
-        lines.append(f"Companion 'Migrate' transactions: {len(unp)}; tokens possibly missed: {missed}")
+            if len(parts) < 2 or parts[1] == "-":
+                unchecked += 1  # logged before mints were recorded, or no curve-held mint in the transaction
+                continue
+            if r["ts"] < now - 600 and not db.has_migration(parts[1]):
+                missed.add(parts[1])
+        lines.append(f"Companion 'Migrate' transactions: {len(unp)}; tokens possibly missed: {len(missed)}"
+                     + (f" ({unchecked} could not be checked)" if unchecked else ""))
     if warn:
         lines.append("Warnings: " + ", ".join(f"{r['kind']} {r['n']}" for r in warn))
     return "\n".join(lines)
