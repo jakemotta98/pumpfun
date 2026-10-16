@@ -28,16 +28,41 @@ python3 -m venv .venv
 if [ ! -f .env ]; then
   echo
   echo "== Keys (paste each one, then press Enter) =="
-  read -rs -p "Helius API key (hidden as you paste): " HELIUS; echo
-  read -rs -p "Telegram bot token from @BotFather (hidden): " TGTOKEN; echo
+  # Helius key: checked live, re-asked until it works
+  while true; do
+    read -rs -p "Helius API key (hidden as you paste): " HELIUS; echo
+    HELIUS=$(printf '%s' "$HELIUS" | tr -d '[:space:]')
+    if curl -s --max-time 15 --config <(printf 'url = "https://mainnet.helius-rpc.com/?api-key=%s"' "$HELIUS") \
+         -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' \
+         | jq -e '.result' >/dev/null 2>&1; then
+      echo "Helius key works."
+      break
+    fi
+    echo "That Helius key did not work (received ${#HELIUS} characters). Copy it again from the Helius dashboard and retry."
+  done
+
+  # Telegram token: checked live, re-asked until it works
+  while true; do
+    read -rs -p "Telegram bot token from @BotFather (hidden): " TGTOKEN; echo
+    TGTOKEN=$(printf '%s' "$TGTOKEN" | tr -d '[:space:]')
+    BOTNAME=$(curl -s --max-time 15 --config <(printf 'url = "https://api.telegram.org/bot%s/getMe"' "$TGTOKEN") \
+      | jq -r 'if .ok then .result.username else empty end' 2>/dev/null || true)
+    if [ -n "$BOTNAME" ]; then
+      echo "Telegram token works: your bot is @${BOTNAME}"
+      break
+    fi
+    echo "Telegram did not accept that token (received ${#TGTOKEN} characters; a token looks like 1234567890:AA... and is about 46 long). Retry."
+  done
+
   echo
-  echo "Now open Telegram, find your new bot, and send it any message (e.g. hi)."
-  read -r -p "Press Enter once you have sent it a message... " _
-  CHAT_ID=$(curl -s --config <(printf 'url = "https://api.telegram.org/bot%s/getUpdates"' "$TGTOKEN") \
-    | jq -r '[.result[].message.chat.id] | last // empty')
-  if [ -z "$CHAT_ID" ]; then
-    read -r -p "Could not detect your chat id automatically. Paste it here: " CHAT_ID
-  fi
+  echo "Now open Telegram, open @${BOTNAME}, tap Start or send it any message (e.g. hi)."
+  CHAT_ID=""
+  while [ -z "$CHAT_ID" ]; do
+    read -r -p "Press Enter once you have sent it a message... " _
+    CHAT_ID=$(curl -s --max-time 15 --config <(printf 'url = "https://api.telegram.org/bot%s/getUpdates"' "$TGTOKEN") \
+      | jq -r '[(.result // [])[] | .message.chat.id? // empty] | last // empty' 2>/dev/null || true)
+    [ -z "$CHAT_ID" ] && echo "No message found yet. Send @${BOTNAME} a message in Telegram, then press Enter again."
+  done
   CODE=$((RANDOM % 9000 + 1000))
   curl -s --config <(printf 'url = "https://api.telegram.org/bot%s/sendMessage"' "$TGTOKEN") \
     --data-urlencode "chat_id=${CHAT_ID}" --data-urlencode "text=Screener setup code: ${CODE}" >/dev/null
