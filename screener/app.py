@@ -292,6 +292,21 @@ class App:
                 log.exception("price loop")
             await asyncio.sleep(max(5, self.s.price_interval_s - (time.time() - started)))
 
+    # ---------- publishing to the private data repo ----------
+    async def do_publish(self, why: str) -> str:
+        if not self.s.publish_repo:
+            return "publishing not set up"
+        from .publish import publish
+        try:
+            res = await asyncio.to_thread(publish, self.s.db_path, self.s.publish_repo, self.s.db_path.parent,
+                                          self.s.timezone)
+        except Exception as e:
+            res = f"error {type(e).__name__}: {e}"[:300]
+        self.db.event("publish", f"{why}: {res}")
+        self.db.set_meta("last_publish_ts", str(time.time()))
+        log.info("publish (%s): %s", why, res)
+        return res
+
     # ---------- housekeeping ----------
     async def housekeeping(self) -> None:
         tz = ZoneInfo(self.s.timezone)
@@ -311,6 +326,11 @@ class App:
                 if local.hour >= self.s.report_hour_local and self.db.get_meta("last_report") != key:
                     self.db.set_meta("last_report", key)
                     await self.tg.send(daily_summary(self.db, int(time.time())))
+                    self.spawn(self.do_publish("daily"))
+                elif self.s.publish_repo and \
+                        time.time() - float(self.db.get_meta("last_publish_ts") or 0) > self.s.publish_every_h * 3600:
+                    self.db.set_meta("last_publish_ts", str(time.time()))
+                    self.spawn(self.do_publish("periodic"))
                 if time.time() - self.last_migration_ts > 2 * 3600 and not self.alerted_quiet:
                     self.alerted_quiet = True
                     await self.tg.send("Warning: no migrations detected for 2 hours. Pump.fun may have changed "
@@ -334,10 +354,13 @@ class App:
                                        f"Mode: phase 1 (log only, no trading).")
                 elif cmd == "/report":
                     await self.tg.send(daily_summary(self.db, int(time.time())))
+                elif cmd == "/publish":
+                    await self.tg.send("Publishing to the data repo...")
+                    await self.tg.send(f"Publish result: {await self.do_publish('manual')}")
                 elif cmd in ("/halt", "/stop"):
                     await self.tg.send("Phase 1 does not trade, so there is nothing to halt.")
                 else:
-                    await self.tg.send("Commands: /status /report")
+                    await self.tg.send("Commands: /status /report /publish")
             await asyncio.sleep(1)
 
     async def run(self) -> None:

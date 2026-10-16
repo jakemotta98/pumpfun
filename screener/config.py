@@ -63,6 +63,8 @@ class Settings:
     timezone: str = "Australia/Perth"
     healthcheck_url: str | None = None
     deep_concurrency: int = 2
+    publish_repo: str | None = None
+    publish_every_h: int = 6
     extra: dict = field(default_factory=dict)
 
     @property
@@ -102,4 +104,6 @@ def load_settings() -> Settings:
         timezone=_get("TIMEZONE", "Australia/Perth"),
         healthcheck_url=_get("HEALTHCHECK_URL") or None,
         deep_concurrency=int(_get("DEEP_CONCURRENCY", "2")),
+        publish_repo=_get("PUBLISH_REPO") or None,
+        publish_every_h=int(_get("PUBLISH_EVERY_H", "6")),
     )

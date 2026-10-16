@@ -248,6 +248,15 @@ def main() -> None:
         asyncio.run(App(load_settings()).run())
     elif cmd == "check":
         sys.exit(asyncio.run(check()))
+    elif cmd == "publish":
+        from .publish import publish
+        s = load_settings()
+        if not s.publish_repo:
+            print("PUBLISH_REPO is not set in .env (run setup-publish.sh)")
+            sys.exit(1)
+        res = publish(s.db_path, s.publish_repo, s.db_path.parent, s.timezone)
+        print(res)
+        sys.exit(0 if res.startswith(("published", "no changes")) else 1)
     elif cmd == "diagnose":
         asyncio.run(diagnose())
     elif cmd == "report":
