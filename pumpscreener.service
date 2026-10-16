@@ -1,0 +1,25 @@
+[Unit]
+Description=Pump.fun post-migration screener (phase 1, log only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=screener
+WorkingDirectory=/opt/pumpscreener
+ExecStart=/opt/pumpscreener/.venv/bin/python -m screener run
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pumpscreener/data
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
